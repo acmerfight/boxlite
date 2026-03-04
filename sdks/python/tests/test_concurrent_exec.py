@@ -124,10 +124,7 @@ class TestConcurrentExec:
             n = 2
             try:
                 results = await asyncio.wait_for(
-                    asyncio.gather(*[
-                        exec_echo(box, f"hello-{i}")
-                        for i in range(n)
-                    ]),
+                    asyncio.gather(*[exec_echo(box, f"hello-{i}") for i in range(n)]),
                     timeout=30,
                 )
             except asyncio.TimeoutError:
@@ -156,10 +153,7 @@ class TestConcurrentExec:
             n = 4
             try:
                 results = await asyncio.wait_for(
-                    asyncio.gather(*[
-                        exec_echo(box, f"hello-{i}")
-                        for i in range(n)
-                    ]),
+                    asyncio.gather(*[exec_echo(box, f"hello-{i}") for i in range(n)]),
                     timeout=30,
                 )
             except asyncio.TimeoutError:
@@ -188,10 +182,7 @@ class TestConcurrentExec:
             n = 8
             try:
                 results = await asyncio.wait_for(
-                    asyncio.gather(*[
-                        exec_echo(box, f"hello-{i}")
-                        for i in range(n)
-                    ]),
+                    asyncio.gather(*[exec_echo(box, f"hello-{i}") for i in range(n)]),
                     timeout=60,
                 )
             except asyncio.TimeoutError:
