@@ -119,14 +119,11 @@ impl Execution for GuestServer {
             .ok_or_else(|| Status::not_found(format!("Execution not found: {}", exec_id)))?;
 
         // Call state directly
-        let task = state.send_input(first, stream).await?;
-
-        // Wait for task to complete
-        match task.await {
-            Ok(Ok(())) => Ok(Response::new(SendInputAck {})),
-            Ok(Err(e)) => Err(e),
-            Err(e) => Err(Status::internal(format!("Stdin task panicked: {}", e))),
-        }
+        let _task = state.send_input(first, stream).await?;
+        // Return immediately — stdin forwarding continues in background.
+        // Blocking here caused deadlocks: each exec() opens 3 HTTP/2 streams,
+        // and N blocked handlers exhaust connection capacity.
+        Ok(Response::new(SendInputAck {}))
     }
 
     async fn wait(&self, request: Request<WaitRequest>) -> Result<Response<WaitResponse>, Status> {
