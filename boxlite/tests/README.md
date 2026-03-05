@@ -19,6 +19,7 @@ This directory contains integration tests for the BoxLite runtime. Tests run con
 | File | VM Required | Description |
 |------|:-----------:|-------------|
 | `lifecycle.rs` | Yes | Box lifecycle tests (create, start, stop, remove) |
+| `concurrent_exec.rs` | Yes | Concurrent exec() on a single box (deadlock regression) |
 | `execution_shutdown.rs` | Yes | Execution behavior during shutdown scenarios |
 | `pid_file.rs` | Yes | PID file management and process tracking tests |
 | `jailer.rs` | Yes | Jailer default behavior and macOS seatbelt deny lifecycle tests |
