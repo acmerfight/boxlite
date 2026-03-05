@@ -38,35 +38,34 @@ impl ContainerExecutor {
 #[async_trait]
 impl Executor for ContainerExecutor {
     async fn spawn(&self, req: &ExecRequest) -> BoxliteResult<ExecHandle> {
-        // Build the command while holding the lock
-        let cmd = {
-            let container = self.container.lock().await;
+        // Serialize the entire build-and-spawn sequence per container.
+        // The underlying OCI runtime exec is not concurrency-safe — concurrent
+        // spawn calls race on shared container state. The returned ExecHandle
+        // (I/O, wait) is fully concurrent after this point.
+        let container = self.container.lock().await;
 
-            let mut cmd = container
-                .cmd()
-                .program(&req.program)
-                .args(&req.args)
-                .envs(req.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        let mut cmd = container
+            .cmd()
+            .program(&req.program)
+            .args(&req.args)
+            .envs(req.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
 
-            if !req.workdir.is_empty() {
-                cmd = cmd.current_dir(&req.workdir);
-            }
+        if !req.workdir.is_empty() {
+            cmd = cmd.current_dir(&req.workdir);
+        }
 
-            if let Some(tty) = &req.tty {
-                cmd = cmd.with_pty(PtyConfig {
-                    rows: tty.rows as u16,
-                    cols: tty.cols as u16,
-                    x_pixels: tty.x_pixels as u16,
-                    y_pixels: tty.y_pixels as u16,
-                });
-            }
+        if let Some(tty) = &req.tty {
+            cmd = cmd.with_pty(PtyConfig {
+                rows: tty.rows as u16,
+                cols: tty.cols as u16,
+                x_pixels: tty.x_pixels as u16,
+                y_pixels: tty.y_pixels as u16,
+            });
+        }
 
-            if let Some(ref user) = req.user {
-                cmd = cmd.with_user(user.clone());
-            }
-
-            cmd
-        }; // Release container lock before spawn
+        if let Some(ref user) = req.user {
+            cmd = cmd.with_user(user.clone());
+        }
 
         cmd.spawn().await
     }
