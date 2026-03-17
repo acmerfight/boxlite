@@ -106,6 +106,12 @@ impl EmbeddedRuntime {
             Self::set_permissions(&path, name)?;
         }
 
+        // macOS: re-sign boxlite-shim with hypervisor entitlement.
+        // The shim may have lost its codesign during cargo rebuild (build.rs
+        // rerun triggers re-link, which strips the ad-hoc signature).
+        #[cfg(target_os = "macos")]
+        Self::sign_shim_if_needed(&tmp)?;
+
         // Stamp marks extraction as complete — checked by the fast path above.
         std::fs::write(tmp.join(".complete"), crate::VERSION)
             .map_err(|e| BoxliteError::Storage(format!("write stamp: {}", e)))?;
@@ -168,6 +174,53 @@ impl EmbeddedRuntime {
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
+
+    /// Sign `boxlite-shim` with macOS Hypervisor.framework entitlement.
+    ///
+    /// The shim calls into Hypervisor.framework which requires the
+    /// `com.apple.security.hypervisor` entitlement.  Build-system re-links
+    /// can strip the ad-hoc signature added by `make runtime-debug`, so we
+    /// re-sign unconditionally after extraction.
+    #[cfg(target_os = "macos")]
+    fn sign_shim_if_needed(dir: &Path) -> BoxliteResult<()> {
+        let shim = dir.join("boxlite-shim");
+        if !shim.exists() {
+            return Ok(());
+        }
+
+        let entitlements = "\
+            <?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+            <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
+            \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+            <plist version=\"1.0\">\n\
+            <dict>\n\
+            \t<key>com.apple.security.hypervisor</key>\n\
+            \t<true/>\n\
+            \t<key>com.apple.security.cs.disable-library-validation</key>\n\
+            \t<true/>\n\
+            </dict>\n\
+            </plist>";
+
+        let tmp_plist = dir.join(".entitlements.plist");
+        std::fs::write(&tmp_plist, entitlements)
+            .map_err(|e| BoxliteError::Storage(format!("write entitlements: {}", e)))?;
+
+        let output = std::process::Command::new("codesign")
+            .args(["-s", "-", "--force", "--entitlements"])
+            .arg(&tmp_plist)
+            .arg(&shim)
+            .output()
+            .map_err(|e| BoxliteError::Storage(format!("codesign exec: {}", e)))?;
+
+        let _ = std::fs::remove_file(&tmp_plist);
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!("codesign failed (non-fatal): {}", stderr);
+        }
+
+        Ok(())
+    }
 
     fn versioned_dir() -> BoxliteResult<PathBuf> {
         let data_dir = dirs::data_local_dir()
@@ -249,6 +302,39 @@ mod tests {
                 "Debug build dir should include hash suffix"
             );
         }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn sign_shim_if_needed_signs_binary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let shim = tmp.path().join("boxlite-shim");
+
+        // Create a minimal Mach-O executable (copy /usr/bin/true as a stand-in)
+        std::fs::copy("/usr/bin/true", &shim).unwrap();
+
+        EmbeddedRuntime::sign_shim_if_needed(tmp.path()).unwrap();
+
+        // Verify codesign added the hypervisor entitlement
+        let output = std::process::Command::new("codesign")
+            .args(["-d", "--entitlements", "-", "--xml"])
+            .arg(&shim)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("com.apple.security.hypervisor"),
+            "Expected hypervisor entitlement in codesign output, got: {}",
+            stdout
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn sign_shim_if_needed_skips_missing_shim() {
+        let tmp = tempfile::tempdir().unwrap();
+        // No boxlite-shim file — should return Ok(()) without error
+        EmbeddedRuntime::sign_shim_if_needed(tmp.path()).unwrap();
     }
 
     #[test]
